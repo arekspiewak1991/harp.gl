@@ -357,16 +357,16 @@ export class TextElementsRenderer {
             `FRAME: ${this.m_viewState.frameNumber}, ZOOM LEVEL: ${this.m_viewState.zoomLevel}`
         );
 
-        const clearVisitedGroups = updateTextElements;
-        const anyTextGroupEvicted = this.m_textElementStateCache.update(
-            time,
-            clearVisitedGroups,
-            this.m_options.disableFading!
-        );
-
         if (updateTextElements) {
+            this.m_textElementStateCache.clearVisited();
             this.updateTextElements(dataSourceTileList, projection);
         }
+        const findReplacements = updateTextElements;
+        const anyTextGroupEvicted = this.m_textElementStateCache.update(
+            time,
+            this.m_options.disableFading!,
+            findReplacements
+        );
 
         this.reset();
         this.prepopulateScreenWithBlockingElements(dataSourceTileList);
@@ -872,7 +872,7 @@ export class TextElementsRenderer {
                 ++this.m_initializedTextElementCount;
             }
         }
-        return textElement.loadingState === LoadingState.Initialized;
+        return textElement.glyphs !== undefined;
     }
 
     private initializeDefaultAssets(): void {
@@ -992,6 +992,7 @@ export class TextElementsRenderer {
             updateStats.clear();
         }
 
+        this.m_textElementStateCache.clearTextCache();
         this.m_cacheInvalidated = false;
 
         this.checkIfOverloaded(dataSourceTileList);
@@ -1688,7 +1689,12 @@ export class TextElementsRenderer {
             const textNeedsDraw = !textRejected || textRenderState!.isFading();
 
             if (textNeedsDraw) {
-                if (pointLabel.textReservesSpace) {
+                // Don't allocate space for rejected text. When zooming, this allows placement of a
+                // lower priority text element that was displaced by a higher priority one (not
+                // present in the new zoom level) before an even lower priority one takes the space.
+                // Otherwise the lowest priority text will fade in and back out.
+                // TODO: Add a unit test for this scenario.
+                if (pointLabel.textReservesSpace && !textRejected) {
                     this.m_screenCollisions.allocate(tempBox2D);
                 }
 
