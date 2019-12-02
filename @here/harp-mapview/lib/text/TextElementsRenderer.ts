@@ -693,6 +693,11 @@ export class TextElementsRenderer {
                 continue;
             }
 
+            // TODO: Movement detection doesn't work as expected.
+            if (!groupState.visited && this.m_viewState.cameraIsMoving) {
+                textElementState.reset();
+                continue;
+            }
             const textElement = textElementState.element;
 
             // Get the TextElementStyle.
