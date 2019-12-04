@@ -93,7 +93,7 @@ export interface OmvDataSourceParameters {
     concurrentDecoderScriptUrl?: string;
 
     /**
-     * Gather feature IDs from `OmvData`. Defaults to `false`.
+     * Gather feature IDs from `OmvData`. Defaults to `true`.
      */
     gatherFeatureIds?: boolean;
 
@@ -225,7 +225,7 @@ export class OmvDataSource extends TileDataSource<OmvTile> {
         this.m_decoderOptions = {
             showMissingTechniques: this.m_params.showMissingTechniques === true,
             filterDescription: this.m_params.filterDescr,
-            gatherFeatureIds: this.m_params.gatherFeatureIds === true,
+            gatherFeatureIds: this.m_params.gatherFeatureIds !== false,
             createTileInfo: this.m_params.createTileInfo === true,
             gatherRoadSegments: this.m_params.gatherRoadSegments === true,
             featureModifierId: this.m_params.featureModifierId,
