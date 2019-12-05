@@ -29,7 +29,7 @@ import {
     MapMeshStandardMaterial,
     SolidLineMaterial
 } from "@here/harp-materials";
-import { LoggerManager } from "@here/harp-utils";
+import { assert, LoggerManager } from "@here/harp-utils";
 import * as THREE from "three";
 import { Circles, Squares } from "./MapViewPoints";
 import { toPixelFormat, toTextureDataType, toTextureFilter, toWrappingMode } from "./ThemeHelpers";
@@ -424,15 +424,38 @@ function applyShaderTechniqueToMaterial(
 ) {
     // The shader technique takes the argument from its `params' member.
     const params = technique.params as { [key: string]: any };
-    const properties = Object.getOwnPropertyNames(params);
-    properties.forEach(property => {
+    const props = Object.getOwnPropertyNames(params).filter(property => {
         const prop = property as keyof typeof params;
         if (prop === "name") {
             // skip reserved property names
-            return;
+            return false;
         }
+        return true;
+    });
+
+    // Remove transparent color from the firstly processed properties set.
+    const baseColorPropName = getBaseColorPropName(technique);
+    const hasBaseColor = baseColorPropName && baseColorPropName in technique;
+    if (hasBaseColor) {
+        removePropFromArray(props, baseColorPropName!);
+        removePropFromArray(props, "opacity");
+        removePropFromArray(props, "transparent");
+    }
+
+    // Apply all technique properties omitting base color.
+    props.forEach(property => {
+        const prop = property as keyof typeof params;
+        // TODO: Check if params[prop] - value should not be interpolated - possible bug!
+        // If the flow (interpolation) should be the same as in applyTechniqueToMaterial()
+        // we could simplify the functions a lot!
         applyTechniquePropertyToMaterial(technique, material, prop, params[prop], level);
     });
+
+    if (hasBaseColor) {
+        const propColor = baseColorPropName as keyof typeof technique;
+        // Finally apply base color and related properties to material (opacity, transparent)
+        applyTechniqueBaseColorToMaterial(technique, material, propColor, params[propColor], level);
+    }
 }
 
 /**
@@ -457,41 +480,65 @@ export function applyTechniqueToMaterial(
     level?: number,
     skipExtraProps?: string[]
 ) {
-    Object.getOwnPropertyNames(technique).forEach(propertyName => {
+    const genericProps = Object.getOwnPropertyNames(technique).filter(propertyName => {
         if (
             propertyName.startsWith("_") ||
             BASE_TECHNIQUE_NON_MATERIAL_PROPS.indexOf(propertyName) !== -1 ||
             DEFAULT_SKIP_PROPERTIES.indexOf(propertyName) !== -1 ||
             (skipExtraProps !== undefined && skipExtraProps.indexOf(propertyName) !== -1)
         ) {
-            return;
+            return false;
         }
         const prop = propertyName as keyof typeof technique;
         const m = material as any;
         if (typeof m[prop] === "undefined") {
-            return;
+            return false;
         }
+        return true;
+    });
+
+    // Remove transparent color from the firstly processed properties set.
+    const baseColorPropName = getBaseColorPropName(technique);
+    const hasBaseColor = baseColorPropName && baseColorPropName in technique;
+    if (hasBaseColor) {
+        removePropFromArray(genericProps, baseColorPropName!);
+        removePropFromArray(genericProps, "opacity");
+        removePropFromArray(genericProps, "transparent");
+    }
+
+    // Apply all other properties (even colors), but not transparent (base) ones.
+    genericProps.forEach(propertyName => {
+        const prop = propertyName as keyof typeof technique;
         let value = technique[prop];
         if (level !== undefined && isInterpolatedProperty(value)) {
             value = getPropertyValue(value, level);
         }
         applyTechniquePropertyToMaterial(technique, material, prop, value, level);
     });
+
+    // Finally apply base (transparent) color itself, modifying material.opacity and
+    // material.transparent attributes too.
+    if (hasBaseColor) {
+        const propColor = baseColorPropName as keyof typeof technique;
+        let value = technique[propColor];
+        if (level !== undefined && isInterpolatedProperty(value)) {
+            value = getPropertyValue(value, level);
+        }
+        applyTechniqueBaseColorToMaterial(technique, material, propColor, value, level);
+    }
 }
 
 /**
  * Apply single and generic technique property to corresponding material parameter.
  *
- * @note Special handling for material parameters of `THREE.Color` type is provided thus it
+ * @note Special handling for material attributes of [[THREE.Color]] type is provided thus it
  * does not provide constructor that would take [[string]] or [[number]] values.
  *
  * @param material target material
- * @param prop material parameter name (or index)
- * @param value corresponding technique property value which is applied.
+ * @param prop material and technique parameter name (or index) that is to be transferred
+ * @param value technique property value which will be applied to corresponding material
+ * attribute.
  */
-// TODO: Pass opacity, transparent color and transparency to material in one and the last call.
-// Firstly ignoring their use in for each loops
-// level will be always defined so don't care.
 function applyTechniquePropertyToMaterial(
     technique: Technique,
     material: THREE.Material,
@@ -501,57 +548,135 @@ function applyTechniquePropertyToMaterial(
 ) {
     const m = material as any;
     if (m[prop] instanceof THREE.Color) {
-        if (typeof value === "string") {
-            value = parseStringEncodedColor(value);
-            if (value === undefined) {
-                throw new Error(`Unsupported color format: '${value}'`);
-            }
-        }
-        const techDescriptor = techniqueDescriptors[technique.name];
-        if (
-            ColorUtils.hasAlphaInHex(value) &&
-            techDescriptor !== undefined &&
-            techDescriptor.attrTransparencyColor !== undefined
-        ) {
-            const transparentColor = techDescriptor.attrTransparencyColor;
-            const { r, g, b, a } = ColorUtils.getRgbaFromHex(value);
-            const tech = technique as any;
-            // Override material opacity and transparency by mixing technique defined opacity
-            // with main color transparency
-            if (m[transparentColor] === m[prop]) {
-                let opacity = a;
-                if (tech.opacity !== undefined) {
-                    opacity *=
-                        level !== undefined && isInterpolatedProperty(tech.opacity)
-                            ? getPropertyValue(tech.opacity, level)
-                            : tech.opacity;
-                }
-                opacity = THREE.Math.clamp(opacity, 0, 1);
-                let transparent = opacity !== 1.0;
-                if (tech.transparent !== undefined) {
-                    transparent =
-                        transparent ||
-                        (level !== undefined && isInterpolatedProperty(tech.transparent)
-                            ? getPropertyValue(tech.transparent, level)
-                            : tech.transparent);
-                }
-                material.opacity = opacity;
-                material.transparent = transparent;
-            }
-            m[prop].setRGB(r, g, b);
-        } else {
-            if (ColorUtils.hasAlphaInHex(value)) {
-                logger.warn(
-                    "Used TRGB color value for technique color without transparency support!"
-                );
-            }
-            m[prop].setHex(value);
-        }
-        // Trigger setter notifying change
-        m[prop] = m[prop];
+        applyTechniqueColorToMaterial(technique, material, prop, value, level);
     } else {
         m[prop] = value;
     }
+}
+
+/**
+ * Apply technique color to material taking special care with transparent (RGBA) colors.
+ *
+ * @note This function is intended to be used with secondary, triary etc. technique colors,
+ * not the base ones that may contain transparency information. Such colors should be processed
+ * with [[applyTechniqueBaseColorToMaterial]] function.
+ *
+ * @param technique an technique the applied color comes from
+ * @param material the material to which color is applied
+ * @param prop technique property (color) name
+ * @param value color value
+ * @param level optional, tile zoom level for zoom-level dependent properties are evaluated.
+ */
+function applyTechniqueColorToMaterial(
+    technique: Technique,
+    material: THREE.Material,
+    prop: string | number,
+    value: any,
+    level?: number
+) {
+    const m = material as any;
+    assert(m[prop] instanceof THREE.Color);
+    assert(
+        !isBaseColorProp(technique, prop),
+        "Main (transparent) technique colors should not be processed here!"
+    );
+
+    if (typeof value === "string") {
+        value = parseStringEncodedColor(value);
+        if (value === undefined) {
+            throw new Error(`Unsupported color format: '${value}'`);
+        }
+    }
+
+    if (ColorUtils.hasAlphaInHex(value)) {
+        logger.warn("Used RGBA value for technique color without transparency support!");
+        // Just for clarity remove transparency component, even if that would be ignored
+        // by THREE.Color.setHex() function.
+        value = ColorUtils.removeAlphaFromHex(value);
+    }
+
+    m[prop].setHex(value);
+    // Trigger setter notifying change
+    m[prop] = m[prop];
+}
+
+/**
+ * Apply technique base color (transparency support) to material with modifying material opacity.
+ *
+ * This method applies main (or base) technique color with transparency support to the corresponding
+ * material color, with an effect on entire [[THREE.Material]] __opacity__ and __transparent__
+ * attributes.
+ *
+ * @note Transparent colors should be processed as the very last technique attributes,
+ * since their effect on material properties like [[THREE.Material.opacity]] and
+ * [[THREE.Material.transparent]] could be overridden by corresponding technique params.
+ *
+ * @param technique an technique the applied color comes from
+ * @param material the material to which color is applied
+ * @param prop technique property (color) name
+ * @param value color value in custom number format
+ * @param level optional, tile zoom level for zoom-level dependent properties are evaluated.
+ */
+function applyTechniqueBaseColorToMaterial(
+    technique: Technique,
+    material: THREE.Material,
+    prop: string | number,
+    value: any,
+    level?: number
+) {
+    const m = material as any;
+    assert(m[prop] instanceof THREE.Color);
+    assert(
+        isBaseColorProp(technique, prop),
+        "Secondary technique colors should not be processed here!"
+    );
+
+    if (typeof value === "string") {
+        value = parseStringEncodedColor(value);
+        if (value === undefined) {
+            throw new Error(`Unsupported color format: '${value}'`);
+        }
+    }
+
+    const { r, g, b, a } = ColorUtils.getRgbaFromHex(value);
+    // Override material opacity and transparency by mixing technique defined opacity
+    // with main color transparency
+    const tech = technique as any;
+    let opacity = a;
+    if (tech.opacity !== undefined) {
+        opacity *=
+            level !== undefined && isInterpolatedProperty(tech.opacity)
+                ? getPropertyValue(tech.opacity, level)
+                : tech.opacity;
+    }
+    opacity = THREE.Math.clamp(opacity, 0, 1);
+    let transparent = opacity !== 1.0;
+    if (tech.transparent !== undefined) {
+        transparent =
+            transparent ||
+            (level !== undefined && isInterpolatedProperty(tech.transparent)
+                ? getPropertyValue(tech.transparent, level)
+                : tech.transparent);
+    }
+    material.opacity = opacity;
+    material.transparent = transparent;
+    m[prop].setRGB(r, g, b);
+    // Trigger setter notifying change
+    m[prop] = m[prop];
+}
+
+function getBaseColorPropName(technique: Technique): string | undefined {
+    const techDescriptor = techniqueDescriptors[technique.name];
+    return techDescriptor !== undefined ? techDescriptor.attrTransparencyColor : undefined;
+}
+
+function isBaseColorProp(technique: Technique, propertyName: string | number): boolean {
+    return getBaseColorPropName(technique) === propertyName;
+}
+
+function removePropFromArray(propsArray: string[], prop: string): boolean {
+    const idx = propsArray.indexOf(prop);
+    return idx >= 0 ? propsArray.splice(idx, 1).length > 0 : false;
 }
 
 function getTextureBuffer(
