@@ -29,6 +29,7 @@ const unitTests = allTests.filter(
 );
 const performanceTests = allTests.filter(name => name.indexOf("/performance/") > -1);
 const renderingTests = allTests.filter(name => name.indexOf("/rendering/") > -1);
+const htmlReport = [...glob.sync("@here/*/lib/*/*.tsx")];
 
 const browserTestsConfig = {
     devtool: "source-map",
@@ -53,7 +54,8 @@ const browserTestsConfig = {
     entry: {
         test: unitTests,
         "performance-test": performanceTests,
-        "rendering-test": renderingTests
+        "rendering-test": renderingTests,
+        "html-report": htmlReport
     },
     output: {
         path: path.join(__dirname, "dist/test"),
@@ -88,6 +90,11 @@ const browserTestsConfig = {
             {
                 from: "./test/resources/",
                 to: "dist/resources",
+                toType: "dir"
+            },
+            {
+                from: "./rendering-test-results",
+                to: "rendering-test-results",
                 toType: "dir"
             }
         ])

@@ -11,8 +11,8 @@ import * as program from "commander";
 import * as fs from "fs";
 
 import { LoggerManager } from "@here/harp-utils";
-import { genHtmlReport } from "./HtmlReport";
 import { ImageTestResultLocal } from "./Interface";
+import { generateHtmlReport } from "./RenderingReport";
 import { getOutputImagePath, loadSavedResults } from "./RenderingTestResultCommon";
 
 const logger = LoggerManager.instance.create("RenderingTestResultCli");
@@ -68,11 +68,11 @@ async function main() {
         .alias("r")
         .action(async function() {
             const results = await loadSavedResults(baseResultsPath);
-            const r = await genHtmlReport(results, {}, baseResultsPath);
-            const overallTestsResult = r[0];
-            const reportHtml = r[1];
+            const r = await generateHtmlReport(results);
+            const overallTestsResult = 123456789;
+            const reportHtml = r;
             if (process.stdout.isTTY) {
-                const fileName = "ibct-report.html";
+                const fileName = "rendering-report.html";
                 logger.info(`(stdout is tty, saving HTML to ${fileName})`);
                 fs.writeFileSync(fileName, reportHtml, "utf-8");
             } else {
