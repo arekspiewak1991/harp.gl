@@ -23,7 +23,7 @@ const BASE_REFERENCE_IMAGE_PATH = config.baseReferenceImagePath;
 /**
  * Resolve reference image URL from github.
  */
-function githubImageResolver(imageProps: TestImageProps) {
+export function githubImageResolver(imageProps: TestImageProps) {
     const name = imageProps.name;
     const module = imageProps.module;
     const testName = `${module}-${name}`;
