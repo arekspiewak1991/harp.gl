@@ -91,6 +91,11 @@ const browserTestsConfig = {
                 from: "./test/resources/",
                 to: "dist/resources",
                 toType: "dir"
+            },
+            {
+                from: "./rendering-test-results",
+                to: "rendering-test-results",
+                toType: "dir"
             }
         ])
     ],
