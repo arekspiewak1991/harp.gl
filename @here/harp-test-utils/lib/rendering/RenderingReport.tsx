@@ -5,12 +5,13 @@
  */
 
 import { githubImageResolver } from "@here/harp-rendering-test/TestPathConfig";
+import * as fs from "fs";
 import * as React from "react";
 import { renderToString } from "react-dom/server";
 import { ImageTestResultLocal } from "./Interface";
 
 interface Summary {
-    [prop: string]: (number | boolean);
+    [prop: string]: number | boolean;
 }
 
 interface ReportProps {
@@ -19,7 +20,7 @@ interface ReportProps {
 }
 
 export function Report(props: ReportProps) {
-    return(
+    return (
         <div className="report">
             <div>
                 <span>Success: {props.summary.success} </span>
@@ -27,7 +28,7 @@ export function Report(props: ReportProps) {
                 <span>Failed: {props.summary.failed} </span>
             </div>
             {props.results.map((res, idx) => (
-                <TestCase {...res} key={idx}/>
+                <TestCase {...res} key={idx} />
             ))}
         </div>
     );
@@ -43,17 +44,46 @@ function TestCase(test: ImageTestResultLocal) {
                 <span>Test: {props.name} - </span>
                 <span>Platform: {props.platform}</span>
             </div>
-            <img src={test.actualImagePath} alt={props.name}/>
-            <img src={referenceImageUrl} alt={props.name}/>
-            <img src={test.diffImagePath} alt={props.name}/>
-        </div>);
+            <img src={test.actualImagePath} alt={props.name} />
+            <img src={referenceImageUrl} alt={props.name} />
+            <img src={test.diffImagePath} alt={props.name} />
+        </div>
+    );
 }
 
-export async function generateHtmlReport(
-    results: ImageTestResultLocal[],
-): Promise<string> {
+export async function generateHtmlReport(results: ImageTestResultLocal[]): Promise<string> {
     const summaries: Summary = summary(results);
-    return renderToString(<Report results={results} summary={summaries}/>);
+    const resultsWithStaticImg = await getImagesDataUri(results);
+    return renderToString(<Report results={resultsWithStaticImg} summary={summaries} />);
+}
+
+async function getImagesDataUri(results: ImageTestResultLocal[]) {
+    const modifiedResults = [];
+    for (const test of results) {
+        let image;
+        const actImgDataUri = test.actualImagePath
+            ? await loadImageData(test.actualImagePath)
+            : undefined;
+        const diffImgDataUri = test.diffImagePath
+            ? await loadImageData(test.diffImagePath)
+            : undefined;
+        image = {
+            imageProps: test.imageProps,
+            actualImagePath: actImgDataUri,
+            diffImagePath: diffImgDataUri,
+            passed: test.passed,
+            mismatchedPixels: test.mismatchedPixels,
+            approveDifference: test.approveDifference
+        };
+        modifiedResults.push(image);
+    }
+    return modifiedResults;
+}
+
+async function loadImageData(url: string) {
+    const binaryImg = fs.readFileSync(url, "binary");
+    const imageDataUri = new Buffer(binaryImg, "binary").toString("base64");
+    return "data:image/png;base64," + imageDataUri;
 }
 
 export function summary(results: ImageTestResultLocal[]): Summary {
