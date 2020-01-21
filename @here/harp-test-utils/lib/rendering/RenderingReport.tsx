@@ -5,13 +5,24 @@
  */
 
 import { githubImageResolver } from "@here/harp-rendering-test/TestPathConfig";
+import Button from "@material-ui/core/Button";
 import * as fs from "fs";
 import * as React from "react";
 import { renderToString } from "react-dom/server";
 import { ImageTestResultLocal } from "./Interface";
 
+let isBrowser = false;
+
+if (typeof window !== "undefined") {
+    isBrowser = true;
+}
+
 interface Summary {
-    [prop: string]: number | boolean;
+    [prop: string]: {
+        success: number;
+        skipped: number;
+        failed: number;
+    };
 }
 
 interface ReportProps {
@@ -23,9 +34,9 @@ export function Report(props: ReportProps) {
     return (
         <div className="report">
             <div>
-                <span>Success: {props.summary.success} </span>
-                <span>Skipped: {props.summary.skipped} </span>
-                <span>Failed: {props.summary.failed} </span>
+                <span>Success: {props.summary.overall.success} </span>
+                <span>Skipped: {props.summary.overall.skipped} </span>
+                <span>Failed: {props.summary.overall.failed} </span>
             </div>
             {props.results.map((res, idx) => (
                 <TestCase {...res} key={idx} />
@@ -52,7 +63,7 @@ function TestCase(test: ImageTestResultLocal) {
 }
 
 export async function generateHtmlReport(results: ImageTestResultLocal[]): Promise<string> {
-    const summaries: Summary = summary(results);
+    const summaries = summary(results);
     const resultsWithStaticImg = await getImagesDataUri(results);
     return renderToString(<Report results={resultsWithStaticImg} summary={summaries} />);
 }
@@ -88,7 +99,7 @@ async function loadImageData(url: string) {
 
 export function summary(results: ImageTestResultLocal[]): Summary {
     let someTestsFailed = false;
-    const res = results.reduce(
+    return results.reduce(
         (r, result) => {
             const status =
                 result.mismatchedPixels === undefined
@@ -111,18 +122,16 @@ export function summary(results: ImageTestResultLocal[]): Summary {
                 }
                 r[key][status] += 1;
             });
-            r[status] += 1;
+            r.overall[status] += 1;
 
             return r;
         },
         {
-            success: 0,
-            skipped: 0,
-            failed: 0
+            overall: {
+                success: 0,
+                skipped: 0,
+                failed: 0
+            }
         } as any
     );
-    return {
-        summaries: res,
-        someTestsFailed
-    };
 }
