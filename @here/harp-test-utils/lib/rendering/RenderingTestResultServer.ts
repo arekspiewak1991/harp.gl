@@ -169,6 +169,9 @@ export function installMiddleware(app: express.Router, basePath: string) {
     const jsonParser = bodyParser.json({ limit: 1024 * 1024 * 16 });
     app.get("/ibct-report", jsonParser, getIbctReport);
     app.post("/ibct-feedback", jsonParser, postIbctFeedback);
+    app.get("/ibct-results", jsonParser, (req, res) => {
+        res.status(200).send(currentResults);
+    });
     app.get("/reference-image", getReferenceImage);
 
     logger.info("serving IBCT report at /ibct-report endpoint");
